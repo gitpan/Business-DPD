@@ -1,0 +1,41 @@
+---
+name: Business-DPD
+version: 0.10
+author:
+  - RevDev
+abstract: handle DPD lable generation
+license: perl
+resources:
+  license: http://dev.perl.org/licenses/
+requires:
+  perl: 5.010
+build_requires:
+  Test::More: 0
+provides:
+  Business::DPD:
+    file: lib/Business/DPD.pm
+    version: 0.10
+  Business::DPD::DBIC:
+    file: lib/Business/DPD/DBIC.pm
+  Business::DPD::DBIC::Schema:
+    file: lib/Business/DPD/DBIC/Schema.pm
+  Business::DPD::DBIC::Schema::DpdCountry:
+    file: lib/Business/DPD/DBIC/Schema/DpdCountry.pm
+  Business::DPD::DBIC::Schema::DpdDepot:
+    file: lib/Business/DPD/DBIC/Schema/DpdDepot.pm
+  Business::DPD::DBIC::Schema::DpdMeta:
+    file: lib/Business/DPD/DBIC/Schema/DpdMeta.pm
+  Business::DPD::DBIC::Schema::DpdRoute:
+    file: lib/Business/DPD/DBIC/Schema/DpdRoute.pm
+  Business::DPD::Label:
+    file: lib/Business/DPD/Label.pm
+  Business::DPD::Render:
+    file: lib/Business/DPD/Render.pm
+  Business::DPD::Render::PDFReuse:
+    file: lib/Business/DPD/Render/PDFReuse.pm
+  Business::DPD::Render::PDFReuse::SlimA6:
+    file: lib/Business/DPD/Render/PDFReuse/SlimA6.pm
+generated_by: Module::Build version 0.280801
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.2.html
+  version: 1.2
