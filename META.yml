@@ -1,6 +1,6 @@
 ---
 name: Business-DPD
-version: 0.10
+version: 0.11
 author:
   - RevDev
 abstract: handle DPD lable generation
@@ -8,13 +8,19 @@ license: perl
 resources:
   license: http://dev.perl.org/licenses/
 requires:
+  DBD::SQLite: 1.14
+  DateTime: 0.4304
+  PDF::Reuse: 0.35
+  PDF::Reuse::Barcode: 0.05
   perl: 5.010
 build_requires:
+  Test::Exception: 0.27
   Test::More: 0
+  Test::NoWarnings: 0.084
 provides:
   Business::DPD:
     file: lib/Business/DPD.pm
-    version: 0.10
+    version: 0.11
   Business::DPD::DBIC:
     file: lib/Business/DPD/DBIC.pm
   Business::DPD::DBIC::Schema:
