@@ -45,32 +45,47 @@ as a standalone dist on CPAN or contact me to include your design.
 Render the label. Currently there is nearly no error checking. Also, 
 things might not fit into their boxes...
 
-The finished PDF will be named C<$barcode_human.pdf> 
+The finished PDF will be named C<$barcode.pdf> (i.e. without checksum or starting char)
 
 =cut
 
 sub render {
-    my ( $self, $label ) = @_;
+    my ( $self, $label, $y_offset ) = @_;
+    $y_offset //=0;
 
-    my $code_hr = $label->code_human;
+    my $outfile = catfile($self->outdir,$label->code . '.pdf');
+
+    $self->_begin_doc($label, $outfile, $y_offset);
+    $self->_add_elements($label, $y_offset);
+    $self->_end_doc($label, $y_offset);
+    return $outfile;
+}
+
+sub _begin_doc {
+    my ( $self, $label, $outfile, $y_offset ) = @_;
     
-    prFile( catfile($self->outdir,$code_hr . '.pdf') );
-    prMbox( 0, 0, 257, 420 );
+    prFile( $outfile );
+    prMbox( 0, 0, 257, $y_offset+420 );
     prForm( {
             file => $self->template,
             page => 1,
             x    => 0,
-            y    => 0
+            y    => $y_offset+0,
         }
     );
+}
 
+sub _add_elements {
+    my ( $self, $label, $y_offset ) = @_;
+    
+    
     PDF::Reuse::Barcode::Code128(
         mode           => 'graphic',
         x              => 20,
         text           => 0,
         ySize          => 3,
         xSize          => 0.9,
-        y              => -5,
+        y              => $y_offset-5,
         drawBackground => 0,
         value          => chr(0xf5) . $label->code_barcode
     );
@@ -81,43 +96,45 @@ sub render {
     
     # barcode
     prFontSize(9);
-    prText( 126, 12, $label->code_human, 'center' );
+    prText( 126, $y_offset+12, $label->code_human, 'center' );
 
     # tracking number
     prFontSize(26);
-    prText( 8, 174, $label->depot );
+    prText( 8, $y_offset+174, $label->depot );
     prFontSize(20);
-    prText( 72, 174, $label->serial );
+    prText( 72, $y_offset+174, $label->serial );
     prFontSize(14);
-    prText( 195, 174, $label->checksum_tracking_number );
+    prText( 195, $y_offset+174, $label->checksum_tracking_number );
 
     # Label-Ursprug
     prFontSize(4);
     my $now = DateTime->now;
     prText(
         126,
-        89,
-        $now->strftime('%F %H:%M')
-            . "; ROUTEVER; Business-DPD-"
-            . Business::DPD->VERSION,
+        $y_offset+89,
+        join('; ',
+            $now->strftime('%F %H:%M'),
+            $self->_dpd->schema->resultset('DpdMeta')->search()->first->version,
+            "Business-DPD-". Business::DPD->VERSION,
+        ),
         'center'
     );
 
     # Servicecode-Land-EmpfaengerPLZ
     prFontSize(9);
-    prText( 126, 98,
+    prText( 126, $y_offset+98,
         join( '-', $label->service_code, $label->country, $label->zip ),
         'center' );
 
     # routing
     prFontSize(28);
-    prText( 20, 95, $label->o_sort );
-    prText( 237, 95, $label->d_sort, 'right' );
+    prText( 20, $y_offset+95, $label->o_sort );
+    prText( 237, $y_offset+95, $label->d_sort, 'right' );
     if ( $label->route_code ) {
         prFontSize(34);
         prText(
             126,
-            130,
+            $y_offset+130,
             $label->country . '-'
                 . $label->d_depot . '-'
                 . $label->route_code,
@@ -126,7 +143,7 @@ sub render {
     }
     else {
         prFontSize(40);
-        prText( 126, 130, $label->country . '-' . $label->d_depot, 'center' );
+        prText( 126, $y_offset+130, $label->country . '-' . $label->d_depot, 'center' );
     }
 
     # depot info
@@ -142,7 +159,7 @@ sub render {
         \@dep,
         {   fontsize => 4,
             base_x   => 250,
-            base_y   => 390,
+            base_y   => $y_offset+390,
             rotate   => '270',
         }
     );
@@ -152,25 +169,22 @@ sub render {
         $self->originator,
         {   fontsize => 4,
             base_x   => 215,
-            base_y   => 385,
+            base_y   => $y_offset+385,
             rotate   => '270',
         }
     );
 
     # recipient
-    $self->_multiline( [
-            @{ $label->recipient },
-            $label->country . '-' . $label->zip . ' ' . $label->city
-        ],
+    $self->_multiline( $label->recipient,
         {   fontsize => 8,
             base_x   => 10,
-            base_y   => 386,
+            base_y   => $y_offset+386,
         }
     );
 
     # weight
     prFontSize(11);
-    prText( 155, 272, $label->weight, 'center' );
+    prText( 155, $y_offset+272, $label->weight, 'center' );
 
     # lieferung n / x
     my $count;
@@ -181,17 +195,29 @@ sub render {
     else {
         $count = '1/1';
     }
-    prText( 155, 295, $count, 'center' );
+    prText( 155, $y_offset+295, $count, 'center' );
 
     # referenznr
-    prFontSize(8);
-    prText( 37, 308, $label->reference_number );
+    $self->_multiline( $label->reference_number,
+        {   fontsize => 8,
+            base_x   => 37,
+            base_y   => $y_offset+308,
+        }
+    );
 
     # auftragsnr
-    prText( 37, 283, $label->order_number );
+    $self->_multiline( $label->order_number,
+        {   fontsize => 8,
+            base_x   => 37,
+            base_y   => $y_offset+283,
+        }
+    );
+}
+
+sub _end_doc {
+    my ( $self, $label ) = @_;
 
     prEnd();
-
 }
 
 sub template { shift->inc2pdf(__PACKAGE__) }
