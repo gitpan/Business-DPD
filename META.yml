@@ -1,6 +1,6 @@
 ---
 name: Business-DPD
-version: 0.13
+version: 0.14
 author:
   - RevDev
 abstract: handle DPD lable generation
@@ -21,7 +21,7 @@ build_requires:
 provides:
   Business::DPD:
     file: lib/Business/DPD.pm
-    version: 0.13
+    version: 0.14
   Business::DPD::DBIC:
     file: lib/Business/DPD/DBIC.pm
   Business::DPD::DBIC::Schema:
