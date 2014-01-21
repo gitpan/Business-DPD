@@ -4,6 +4,8 @@ use strict;
 use warnings;
 use 5.010;
 
+use version; our $VERSION = version->new('0.22');
+
 use Carp;
 use File::Spec::Functions qw(catfile);
 
@@ -168,7 +170,7 @@ sub _import_depot {
             my %to_create;
             my @data = @$data;
             @to_create{
-                qw( depot_number IATALikeCode group_id name1 name2 address1 address2 postcode city country phone fax mail web)
+                qw( depot_number iatalikecode group_id name1 name2 address1 address2 postcode city country phone fax mail web)
                 } = @data[ 0 .. 10 ];
 
             push( @routes, \%to_create );
@@ -213,9 +215,14 @@ this...
 =cut
 
 sub path_to_sqlite {
-    my $base = $INC{'Business/DPD/DBIC.pm'};
-    $base =~ s/DBIC.pm$/dpd.sqlite/;
-    return $base;
+    if ($INC{'Test/More.pm'}) {
+        return 't/dpd_test.sqlite'; 
+    }
+    else {
+        my $base = $INC{'Business/DPD/DBIC.pm'};
+        $base =~ s/DBIC.pm$/dpd.sqlite/;
+        return $base;
+    }
 }
 
 =head3 generate_sqlite
@@ -284,7 +291,7 @@ sub create_table_statements {
 )",
         "CREATE TABLE dpd_depot (
     depot_number integer PRIMARY KEY,
-    IATALikeCode text,
+    iatalikecode text,
     group_id text,
     name1 text,
     name2 text,

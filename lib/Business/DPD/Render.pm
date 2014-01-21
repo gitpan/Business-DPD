@@ -4,6 +4,8 @@ use strict;
 use warnings;
 use 5.010;
 
+use version; our $VERSION = version->new('0.22');
+
 use parent qw(Class::Accessor::Fast);
 use Carp;
 
@@ -12,7 +14,7 @@ __PACKAGE__->mk_accessors(qw(_dpd outdir originator));
 
 =head1 NAME
 
-Business::DPD::Render - render a lable
+Business::DPD::Render - render a label
 
 =head1 SYNOPSIS
 
@@ -40,10 +42,19 @@ You should really use a subclass of this module!
         originator => ['some','lines','of text'],
     });
 
+C<originator> will be automatically populated if
+C<$dpd> C<originator_address> is set.
+
 =cut
 
 sub new {
     my ($class, $dpd, $opts) = @_;
+
+    if ($dpd->originator_address) {
+        $opts->{originator} //= [
+            $dpd->originator_address->as_array
+        ];
+    }
 
     my $self = bless $opts, $class;
     $self->_dpd($dpd);

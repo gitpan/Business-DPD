@@ -4,24 +4,26 @@ use strict;
 use warnings;
 use 5.010;
 
-use version; our $VERSION = version->new('0.14');
+use version; our $VERSION = version->new('0.22');
 
 use parent qw(Class::Accessor::Fast);
 use Business::DPD::DBIC;
 use Business::DPD::Label;
 use Carp;
+use Scalar::Util 'weaken';
+use DateTime;
 
-__PACKAGE__->mk_accessors(qw(schema schema_class dbi_connect _iso7064_mod37_36_checksum_map));
+__PACKAGE__->mk_accessors(qw(schema schema_class dbi_connect _iso7064_mod37_36_checksum_map originator_address));
 
 =head1 NAME
 
-Business::DPD - handle DPD lable generation
+Business::DPD - handle DPD label generation
 
 =head1 SYNOPSIS
 
     use Business::DPD;
-    my $dpd = Business::DPD->new;
-    $dpd->connect_schema; 
+    my $dpd = Business::DPD->new();
+    $dpd->connect_schema;
     my $label = $dpd->generate_label({
         zip             => '12555',
         country         => 'DE',
@@ -32,10 +34,33 @@ Business::DPD - handle DPD lable generation
     say $label->tracking_number;
     say $label->d_sort;
 
+    use Business::DPD;
+    my $dpd = Business::DPD->new();
+    $dpd->connect_schema;
+    $dpd->set_originator_address({
+        name1   => 'DELICom DPD GmbH',
+        street  => 'Wailandtstrasse 1',
+        postal  => '63741',
+        city    => 'Aschaffenburg',
+        country => 'DE',
+        phone   => '06021/ 0815',
+        fax     => '06021/ 0816',
+        email   => 'test.dpd@dpd.com',
+        depot   => '0176',
+    }));
+    my $label = $dpd->generate_label({
+        address         => Business::DPD::Address->new($dpd,{ ... });
+        serial          => '5012345678',
+        service_code    => '101',
+    });
+    say $label->tracking_number;
+    say $label->d_sort;
 
 =head1 DESCRIPTION
 
-TODO
+Calculate routing information for parcel sending via DPD (http://dpd.com)
+
+Generate labels for parcels (including barcode)
 
 =head1 METHODS
 
@@ -88,6 +113,12 @@ sub connect_schema {
     my $schema = $self->schema_class->connect(@{$self->dbi_connect});
     $self->schema($schema);
 
+    unless ($ENV{HARNESS_ACTIVE}) {
+        my $expires = $self->routing_meta->expires;
+        my $today   = DateTime->now()->strftime('%Y%m%d');
+        warn 'your DPD routing database is outdated since '.$expires
+            if $expires < $today;
+    }
 }
 
 =head3 generate_label
@@ -148,68 +179,82 @@ sub iso7064_mod37_36_checksum_map {
     return (\%map,\@chars);
 }
 
-=head1 TODO
+=head3 country_code
 
-=head3 Routenfeld
-
-* tracking number:
-
-input: depot number (plus 5+6 stelle?), laufende nummer
-output: tracking number incl checksum
-
-* routing:
-
-input: target zip, Land,
-output: O-Sort, Land, Empfangsdepot, Beförderungsweg, D-Sort
-
-* weiters:
-
-kennzeichnung (kleingewicht, Express)
-Servicetext
-Servicecode
-
-Lableursprung( datum/zeit, routenDB version, software)
-
-=head3 Barcodefeld
-
-input: target zip, tracking number, servicecode, target country number
-output: barcode-number incl checksum, barcode image
-
-=head3 Sendungsinformationsfeld
-
-input: adressdaten
+    my $country_num = $dpd->country_code('DE');
 
 =cut
 
-=head1 needed methods
+sub country_code {
+    my ($self, $country) = @_;
+    my $c = $self->schema->resultset('DpdCountry')->search({ alpha2 => $country })->first;
+    croak 'country "'.$country.'" not found' unless $c;
+    return $c->num;
+}
 
-* one object for one address
-* required fields
-** target country
-** target zipcode
-** laufende nummer
-** depot number
-** service code
-* semi-required
-** address data
-* optional
-** referenznummer
-** auftragsnummer
-** gewicht
-** n of m
-** template
+=head3 country_alpha2
+
+    my $country = $dpd->country_alpha2(276);
 
 =cut
+
+sub country_alpha2 {
+    my ($self, $country_num) = @_;
+    my $c = $self->schema->resultset('DpdCountry')->search({ num => $country_num })->first;
+    croak 'country "'.$country_num.'" not found' unless $c;
+    return $c->alpha2;
+}
+
+=head3 routing_meta
+
+    my $routing_version = $dpd->routing_meta->version;
+
+Returns L<Business::DPD::DBIC::Schema::DpdMeta> object.
+
+=cut
+
+sub routing_meta {
+    my ($self) = @_;
+    my $meta = $self->schema->resultset('DpdMeta')->search({})->single;
+    croak 'no meta!' unless $meta;
+    return $meta;
+}
+
+sub set_originator_address {
+    my ($self, $options) = @_;
+    $self->originator_address(Business::DPD::Address->new(
+        $self,
+        $options,
+    ));
+
+    # prevent circular reference
+    weaken($self->originator_address->{_dpd});
+}
 
 1;
 
 __END__
 
+=head1 TO GENERATE DPD ROUTE DATABASE
+
+    cd Business-DPD
+    mkdir route-db
+    cd route-db
+    wget https://www.dpdportal.sk/download/routing_tables/rlatest_rev_dpdshipper_legacy.zip
+    unzip rlatest_rev_dpdshipper_legacy.zip
+    cd ..
+    rm -f lib/Business/DPD/dpd.sqlite
+    perl -Ilib helper/generate_sqlite_db.pl
+    perl -Ilib helper/import_dpd_data.pl route-db/
+    perl Build.PL
+    perl Build test
+    sudo perl Build install
+
 =head1 AUTHOR
 
-RevDev E<lt>we {at} revdev.atE<gt>
+Thomas Klausner C<< domm AT cpan.org >>
 
-=head1 SEE ALSO
+Jozef Kutej C<< jozef@kutej.net >>
 
 =head1 LICENSE
 

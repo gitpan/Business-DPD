@@ -4,6 +4,8 @@ use strict;
 use warnings;
 use 5.010;
 
+use version; our $VERSION = version->new('0.22');
+
 use parent qw(Business::DPD::Render::PDFReuse);
 use Carp;
 use PDF::Reuse;
@@ -11,10 +13,12 @@ use PDF::Reuse::Barcode;
 use Encode;
 use DateTime;
 use File::Spec::Functions qw(catfile);
+use List::MoreUtils 'any';
+use POSIX;
 
 =head1 NAME
 
-Business::DPD::Render::PDFReuse::SlimA6 - render a lable in slim A6 using PDF::Reuse
+Business::DPD::Render::PDFReuse::SlimA6 - render a label in slim A6 using PDF::Reuse
 
 =head1 SYNOPSIS
 
@@ -27,7 +31,7 @@ Business::DPD::Render::PDFReuse::SlimA6 - render a lable in slim A6 using PDF::R
 
 =head1 DESCRIPTION
 
-Render a DPD lable using a slim A6-based template that also fits on a 
+Render a DPD label using a slim A6-based template that also fits on a 
 A4-divided-by-three-page. This is what we need at the moment. If you 
 want to provide other formats, please go ahead and either release them 
 as a standalone dist on CPAN or contact me to include your design.
@@ -55,19 +59,36 @@ sub render {
 
     my $outfile = catfile($self->outdir,$label->code . '.pdf');
 
+    my @open_fd = _open_fd();
+
     $self->_begin_doc($label, $outfile, $y_offset);
     $self->_add_elements($label, $y_offset);
     $self->_end_doc($label, $y_offset);
+
+    # tidy-up file descriptors after bug in PDF::Reuse (http://rt.cpan.org/Ticket/Display.html?id=41287)
+    foreach my $fd_num (_open_fd()) {
+        POSIX::close($fd_num)
+            unless any { $_ == $fd_num } @open_fd;
+    }
+
     return $outfile;
+}
+
+sub _open_fd {
+    return (
+        sort
+        map { m{/(\d+)$} ? $1 : () }
+        glob "/proc/$$/fd/*"
+    );
 }
 
 sub _begin_doc {
     my ( $self, $label, $outfile, $y_offset ) = @_;
     
     prFile( $outfile );
-    prMbox( 0, 0, 257, $y_offset+420 );
+    prMbox( 0, 0, 258, $y_offset+414 );
     prForm( {
-            file => $self->template,
+            file => $self->template($label),
             page => 1,
             x    => 0,
             y    => $y_offset+0,
@@ -81,37 +102,42 @@ sub _add_elements {
     
     PDF::Reuse::Barcode::Code128(
         mode           => 'graphic',
-        x              => 20,
+        x              => 8,
         text           => 0,
-        ySize          => 3,
-        xSize          => 0.9,
-        y              => $y_offset-5,
+        ySize          => 4.6,
+        xSize          => 1,
+        y              => $y_offset-25,
         drawBackground => 0,
         value          => chr(0xf5) . $label->code_barcode
     );
 
-    my $font_path = $self->template;
-    $font_path=~s/SlimA6.pdf/MONACO.TTF/;
+    my $font_path = $self->template($label);
+    $font_path=~s/SlimA6(-.+)?.pdf/MONACO.TTF/;
     prTTFont($font_path);
+#	prFont('Courier-Bold');
     
-    # barcode
+    # Barcode field
     prFontSize(9);
-    prText( 126, $y_offset+12, $label->code_human, 'center' );
+    prText( 126, $y_offset+6, $label->code_human, 'center' );
 
-    # tracking number
+    # tracking number (inside Route field, above "Track" label)
     prFontSize(26);
-    prText( 8, $y_offset+174, $label->depot );
-    prFontSize(20);
-    prText( 72, $y_offset+174, $label->serial );
-    prFontSize(14);
-    prText( 195, $y_offset+174, $label->checksum_tracking_number );
+    prText( 8, $y_offset+168, $label->depot );
+    prFontSize(16);
+    prText( 72, $y_offset+168, $label->serial );
+    prFontSize(12);
+    prText( 170, $y_offset+168, $label->checksum_tracking_number );
 
-    # Label-Ursprug
+    # Service (inside Route field, above "Service" label)
+    prFontSize(16);
+    prText( 253, $y_offset+168, $label->service_text, 'right' );
+
+    # Label-Origin (inside Route field, above barcode)
     prFontSize(4);
     my $now = DateTime->now;
     prText(
         126,
-        $y_offset+89,
+        $y_offset+111,
         join('; ',
             $now->strftime('%F %H:%M'),
             $self->_dpd->schema->resultset('DpdMeta')->search()->first->version,
@@ -120,21 +146,23 @@ sub _add_elements {
         'center'
     );
 
-    # Servicecode-Land-EmpfaengerPLZ
+    # Servicecode-Country-RecipientZIP  (inside Route field, above Label-Origin)
     prFontSize(9);
-    prText( 126, $y_offset+98,
+    prText( 126, $y_offset+116,
         join( '-', $label->service_code, $label->country, $label->zip ),
         'center' );
 
-    # routing
-    prFontSize(28);
-    prText( 20, $y_offset+95, $label->o_sort );
-    prText( 237, $y_offset+95, $label->d_sort, 'right' );
+    # Outbound-Sort, Destination-Sort (inside Route field, around Servicecode-Country-RecipientZIP)
+    prFontSize(19);
+    prText( 20, $y_offset+111, $label->o_sort );
+    prText( 237, $y_offset+111, $label->d_sort, 'right' );
+
+    # Destination text (inside Route field, below Track and Service label)
     if ( $label->route_code ) {
-        prFontSize(34);
+        prFontSize(30);
         prText(
             126,
-            $y_offset+130,
+            $y_offset+128,
             $label->country . '-'
                 . $label->d_depot . '-'
                 . $label->route_code,
@@ -142,8 +170,8 @@ sub _add_elements {
         );
     }
     else {
-        prFontSize(40);
-        prText( 126, $y_offset+130, $label->country . '-' . $label->d_depot, 'center' );
+        prFontSize(38);
+        prText( 126, $y_offset+128, $label->country . '-' . $label->d_depot, 'center' );
     }
 
     # depot info
@@ -157,34 +185,54 @@ sub _add_elements {
     push( @dep, 'Fax: ' . $depot->fax )   if $depot->fax;
     $self->_multiline(
         \@dep,
-        {   fontsize => 4,
+        {   fontsize => 5,
             base_x   => 250,
-            base_y   => $y_offset+390,
+            base_y   => $y_offset+387,
             rotate   => '270',
+            line_height => 0.5,
         }
     );
 
-    # originator{
+    # originator
     $self->_multiline(
         $self->originator,
-        {   fontsize => 4,
-            base_x   => 215,
-            base_y   => $y_offset+385,
+        {   fontsize => 5,
+            base_x   => 217,
+            base_y   => $y_offset+387,
             rotate   => '270',
+            line_height => 0.5,
         }
     );
 
+
     # recipient
-    $self->_multiline( $label->recipient,
-        {   fontsize => 8,
-            base_x   => 10,
-            base_y   => $y_offset+386,
+    my (@recipient,$locality);
+    
+    foreach my $line (@{$label->recipient}) {
+        if (index($line,$label->zip) >= 0
+            && ! defined $locality) {
+            $locality = $line;
+            $locality = uc($label->country).'-'.$locality
+                unless index($locality,uc($label->country)) == 0;
+        } else {
+            push(@recipient,$line);
+        }   
+    }
+    
+    $self->_multiline( \@recipient,
+        {   fontsize => 9,
+            base_x   => 3,
+            base_y   => $y_offset+381,
+            max_width=> 35,
         }
     );
+    
+    prFontSize(13);
+    prText( 3, $y_offset+316, $locality, 'left' );
 
     # weight
     prFontSize(11);
-    prText( 155, $y_offset+272, $label->weight, 'center' );
+    prText( 155, $y_offset+268, $label->weight, 'center' );
 
     # lieferung n / x
     my $count;
@@ -195,13 +243,14 @@ sub _add_elements {
     else {
         $count = '1/1';
     }
-    prText( 155, $y_offset+295, $count, 'center' );
+    prText( 155, $y_offset+291, $count, 'center' );
 
     # referenznr
     $self->_multiline( $label->reference_number,
         {   fontsize => 8,
             base_x   => 37,
-            base_y   => $y_offset+308,
+            base_y   => $y_offset+302,
+            max_width=>15,
         }
     );
 
@@ -209,7 +258,8 @@ sub _add_elements {
     $self->_multiline( $label->order_number,
         {   fontsize => 8,
             base_x   => 37,
-            base_y   => $y_offset+283,
+            base_y   => $y_offset+276,
+            max_width=>15,
         }
     );
 }
@@ -220,7 +270,15 @@ sub _end_doc {
     prEnd();
 }
 
-sub template { shift->inc2pdf(__PACKAGE__) }
+sub template {
+    my ( $self, $label ) = @_;
+    my $depot            = $self->_dpd->schema->resultset('DpdDepot')->find( $label->depot );
+    my $depot_country    = lc($depot->country);
+    my $default_tempate  = $self->inc2pdf(__PACKAGE__);
+    my $country_template = $default_tempate;
+    $country_template =~ s/\.pdf$/-$depot_country.pdf/;
+    return (-f $country_template ? $country_template : $default_tempate);
+}
 
 1;
 

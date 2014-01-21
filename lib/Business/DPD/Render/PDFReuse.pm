@@ -4,17 +4,20 @@ use strict;
 use warnings;
 use 5.010;
 
+use version; our $VERSION = version->new('0.22');
+
 use parent qw(Business::DPD::Render);
 use Carp;
 use Encode;
 use PDF::Reuse;
 use PDF::Reuse::Barcode;
+use Text::Autoformat;
 
 __PACKAGE__->mk_accessors(qw(template));
 
 =head1 NAME
 
-Business::DPD::Render::PDFReuse::SlimA6 - render a lable in slim A6 using PDF::Reuse
+Business::DPD::Render::PDFReuse::SlimA6 - render a label in slim A6 using PDF::Reuse
 
 =head1 SYNOPSIS
 
@@ -27,7 +30,7 @@ Business::DPD::Render::PDFReuse::SlimA6 - render a lable in slim A6 using PDF::R
 
 =head1 DESCRIPTION
 
-Render a DPD lable using a slim A6-based template that also fits on a 
+Render a DPD label using a slim A6-based template that also fits on a 
 A4-divided-by-three-page. This is what we need at the moment. If you 
 want to provide other formats, please go ahead and either release them 
 as a standalone dist on CPAN or contact me to include your design.
@@ -64,26 +67,39 @@ sub _multiline {
     my ( $self, $data, $opts ) = @_;
 
     my $fontsize =  $opts->{fontsize} || 6;
-    my $base_x = $opts->{base_x} || 0;
-    my $base_y = $opts->{base_y} || 0;
-    my $rotate = $opts->{rotate} || 0;
-    
+    my $base_x = $opts->{base_x} // 0;
+    my $base_y = $opts->{base_y} // 0;
+    my $rotate = $opts->{rotate} // 0;
+    my $line_height = $opts->{line_height} // 1;
+    my $max_width = $opts->{max_width};
+
     prFontSize( $fontsize );
 
     $data=[$data] unless ref($data) eq 'ARRAY';
 
-    foreach my $line (@$data) {
-        next unless $line =~ /[\w ]/;
-        prText(
-            $base_x, $base_y,
-            $line,
-            $opts->{'align'} || '', $rotate
-        );
-        if ( $rotate == 270 ) {
-            $base_x -= ( $fontsize + 1 );
+    foreach my $rawline (@$data) {
+        next unless $rawline && $rawline =~ /[\w ]/;
+        my @lines;
+        if ( $max_width && length($rawline) >  $max_width) {
+            my $formatted = autoformat($rawline, {left=>1,right=>$max_width});
+            @lines = split(/\n/,$formatted);
         }
-        elsif ( $rotate == 0 ) {
-            $base_y -= ( $fontsize + 1 );
+        else {
+            push(@lines,$rawline);
+        }
+       
+        foreach my $line (@lines) {
+            prText(
+                $base_x, $base_y,
+                $line,
+                $opts->{'align'} || '', $rotate
+            );
+            if ( $rotate == 270 ) {
+                $base_x -= ( $fontsize + $line_height );
+            }
+            elsif ( $rotate == 0 ) {
+                $base_y -= ( $fontsize + $line_height  );
+            }
         }
     }
 }
